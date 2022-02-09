@@ -45,8 +45,47 @@ class Game {
 		this.draw_state = drawState;
 	}
 
-	static createTable() {
-		return db.none(sqlFile('game/create_games_table.sql'));
+	static createTable = async () => {
+		const res = await database.client.query(`CREATE TABLE IF NOT EXISTS games (
+			id TEXT PRIMARY KEY NOT NULL,
+			moves TEXT NULL,
+			left_fens TEXT NOT NULL DEFAULT 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+			right_fens TEXT NOT NULL DEFAULT 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+			left_reserve_white TEXT NULL,
+			left_reserve_black TEXT NULL,
+			right_reserve_white TEXT NULL,
+			right_reserve_black TEXT NULL,
+			left_promoted_pieces TEXT NULL,
+			right_promoted_pieces TEXT NULL,
+			left_last_move TEXT NULL DEFAULT '[]',
+			right_last_move TEXT NULL DEFAULT '[]',
+			left_color_to_play TEXT NULL DEFAULT 'white',
+			right_color_to_play TEXT NULL DEFAULT 'white',
+			minutes SMALLINT NOT NULL DEFAULT 5,
+			increment SMALLINT NOT NULL DEFAULT 5,
+			rating_range TEXT NULL DEFAULT '0,3000',
+			mode TEXT NOT NULL DEFAULT 'Casual',
+			status TEXT NOT NULL DEFAULT 'open',
+			timestamp TIMESTAMP NOT NULL,
+			left_last_time BIGINT NULL,
+			right_last_time BIGINT NULL,
+			clocks TEXT NULL DEFAULT '0,0,0,0',
+			termination TEXT NULL,
+			join_random BOOLEAN NULL DEFAULT TRUE,
+			resign_state TEXT NULL DEFAULT '0,0,0,0',
+			draw_state TEXT NULL DEFAULT '0,0,0,0',
+			player1 INT NULL REFERENCES users (id),
+			player2 INT NULL REFERENCES users (id),
+			player3 INT NULL REFERENCES users (id),
+			player4 INT NULL REFERENCES users (id),
+			player1_rating INT NULL,
+			player2_rating INT NULL,
+			player3_rating INT NULL,
+			player4_rating INT NULL
+		);
+		`);
+		// return db.none(sqlFile('game/create_games_table.sql'));
+		return res;
 	}
 
 	static mapRow(row) {
@@ -91,15 +130,58 @@ class Game {
 	}
 
 	static async getAllOpen() {
-		const rows = await db.any(sqlFile('game/get_all_open_games.sql'));
+		// const rows = await db.any(sqlFile('game/get_all_open_games.sql'));
+		const { rows } = await database.client.query(`SELECT
+			g.id,
+			g.minutes,
+			g.increment,
+			g.rating_range AS "ratingRange",
+			g.mode,
+			g.status,
+			g.timestamp,
+			g.join_random AS "joinRandom",
+			player1.id AS player1id,
+			player1.username AS player1username,
+			player1.title AS player1title,
+			player1.rating_bullet AS "player1ratingBullet",
+			player1.rating_blitz AS "player1ratingBlitz",
+			player1.rating_classical AS "player1ratingClassical",
+			player2.id AS player2id,
+			player2.username AS player2username,
+			player2.title AS player2title,
+			player2.rating_bullet AS "player2ratingBullet",
+			player2.rating_blitz AS "player2ratingBlitz",
+			player2.rating_classical AS "player2ratingClassical",
+			player3.id AS player3id,
+			player3.username AS player3username,
+			player3.title AS player3title,
+			player3.rating_bullet AS "player3ratingBullet",
+			player3.rating_blitz AS "player3ratingBlitz",
+			player3.rating_classical AS "player3ratingClassical",
+			player4.id AS player4id,
+			player4.username AS player4username,
+			player4.title AS player4title,
+			player4.rating_bullet AS "player4ratingBullet",
+			player4.rating_blitz AS "player4ratingBlitz",
+			player4.rating_classical AS "player4ratingClassical"
+		FROM games AS g
+			LEFT JOIN users_with_most_recent_ratings player1 ON g.player1 = player1.id
+			LEFT JOIN users_with_most_recent_ratings player2 ON g.player2 = player2.id
+			LEFT JOIN users_with_most_recent_ratings player3 ON g.player3 = player3.id
+			LEFT JOIN users_with_most_recent_ratings player4 ON g.player4 = player4.id
+		WHERE status = 'open'
+		ORDER by timestamp ASC;
+		`);
 		return rows.map(Game.mapRowGameWithUsers);
 	}
 
-	static async getByID(id) {
+	static getByID = async (id) => {
 		try {
-			const row = await db.oneOrNone(sqlFile('game/get_game_by_id.sql'), { id: id });
-			if (row) {
-				return Game.mapRow(row);
+			// const row = await db.oneOrNone(sqlFile('game/get_game_by_id.sql'), { id: id });
+			const {rows} = await database.client.query(`SELECT * FROM games WHERE id = '${id}';
+			`);
+			if (rows.length !== 0) {
+				return Game.mapRow(rows[0]);
 			}
 			const err = new Error();
 			err.status = 401;
@@ -148,7 +230,13 @@ class Game {
 				// Check if player's rating is within game rating range and not overriding other player
 				if (userRating >= gameRatingRange[0] && userRating <= gameRatingRange[1] && game[playerPosition] === null) {
 					const playerRatingColumn = `${playerPosition}_rating`;
-					await db.none(sqlFile('game/update_player_open_game.sql'), { id, playerPosition, player, playerRatingColumn, userRating });
+					// await db.none(sqlFile('game/update_player_open_game.sql'), { id, playerPosition, player, playerRatingColumn, userRating });
+					await database.client.query(`UPDATE games
+					SET
+						player${playerPosition} = ${player},
+						player${playerPosition}_rating = ${userRating}
+					WHERE id = ${id};
+					`)
 					return true;
 				}
 			}
@@ -177,17 +265,28 @@ class Game {
 			if (game.player3 !== null) activePlayers += 1;
 			if (game.player4 !== null) activePlayers += 1;
 			if (activePlayers > 1) {
-				await db.none(sqlFile('game/update_player_open_game.sql'), {
-					playerPosition: `player${userPosition}`,
-					player: null,
-					playerRatingColumn: `player${userPosition}_rating`,
-					userRating: null,
-					id: gameID
-				});
+				await database.client.query(`UPDATE games
+				SET
+					player${userPosition} = null,
+					player${userPosition}_rating = null
+				WHERE id = '${gameID}';
+				`);
+
+				// await db.none(sqlFile('game/update_player_open_game.sql'), {
+				// 	playerPosition: `player${userPosition}`,
+				// 	player: null,
+				// 	playerRatingColumn: `player${userPosition}_rating`,
+				// 	userRating: null,
+				// 	id: gameID
+				// });
 			} else {
-				await db.none(sqlFile('game/remove_game.sql'), { id: gameID });
+				await database.client.query(`DELETE FROM games
+				WHERE id='${gameID}';
+				`)
+				// await db.none(sqlFile('game/remove_game.sql'), { id: gameID });
 			}
 		} catch (err) {
+			console.log(err, '----------');
 			if (!err.status) {
 				err.status = 500;
 			}
@@ -204,7 +303,7 @@ class Game {
 		return false;
 	}
 
-	static async createGame(player1, player2, player3, player4, minutes, increment, ratingRange, mode, joinRandom) {
+	static async createGame(player1 = null, player2 = null, player3 = null, player4 = null, minutes, increment, ratingRange, mode, joinRandom) {
 		// Only player1 or player2 will be defined, add initial rating of player who created game to game row, others updated later
 		const status = 'open';
 		let ratingColumnOfFirstPlayer = 'player1_rating';
@@ -225,15 +324,39 @@ class Game {
 		}
 
 		// Calculate random unique game id
-		const rowNumStart = await db.one(sqlFile('game/get_number_games.sql'));
-		const numGamesStart = rowNumStart.count;
+		// const rowNumStart = await db.one(sqlFile('game/get_number_games.sql'));
+		const { rows } = await database.client.query('SELECT COUNT(*) FROM games;');
+		const rowNumStart = parseInt(rows[0].count);
+		const numGamesStart = rowNumStart;
 		let numGamesEnd = numGamesStart;
 		let id;
 		while (numGamesStart === numGamesEnd) {
 			id = (Math.random() + 1).toString(36).substr(2, 12);
-			await db.none(sqlFile('game/create_game.sql'),
-				{ id, player1, player2, player3, player4, minutes, increment, ratingRange, mode, status, joinRandom, ratingColumnOfFirstPlayer, rating });
-			const rowNumEnd = await db.one(sqlFile('game/get_number_games.sql'));
+			// await db.none(sqlFile('game/create_game.sql'),
+			// { id, player1, player2, player3, player4, minutes, increment, ratingRange, mode, status, joinRandom, ratingColumnOfFirstPlayer, rating });
+			await database.client.query(`INSERT INTO games
+			(id, minutes, increment, rating_range, mode, status, timestamp, join_random, player1, player2, player3, player4, player1_rating)
+			VALUES (
+				'${id}',
+				${minutes},
+				${increment},
+				'${ratingRange}',
+				'${mode}',
+				'${status}',
+				now(),
+				${joinRandom},
+				${player1},
+				${player2},
+				${player3},
+				${player4},
+				${rating}
+			)
+			ON CONFLICT DO NOTHING;
+			`);
+			// const rowNumEnd = await db.one(sqlFile('game/get_number_games.sql'));
+			const rowNumEnd = await database.client.query(`SELECT COUNT(*)
+			FROM games;
+			`);
 			numGamesEnd = rowNumEnd.count;
 		}
 		return id;

@@ -16,8 +16,8 @@ router.post('/', async (req, res) => {
 		properties: {
 			minutes: { type: 'integer' },
 			increment: { type: 'integer' },
-			player1: { type: ['integer', null] },
-			player2: { type: ['integer', null] },
+			player1: { type: ['integer', "null"] },
+			player2: { type: ['integer', "null"] },
 			ratingRange: { type: 'string' },
 			mode: { type: 'string' },
 			joinRandom: { type: 'boolean' },

@@ -1,9 +1,11 @@
 const bcrypt = require('bcryptjs');
 const database = require('./database');
 const Rating = require('./Rating');
+const client = database.client;
 
 const db = database.db;
 const sqlFile = database.sqlFile;
+const readSQLFile = database.readSQLFile;
 
 class User {
 	constructor(id, username, email, passwordHash, title, ratingBullet, rdBullet, ratingBlitz, rdBlitz, ratingClassical, rdClassical) {
@@ -20,8 +22,21 @@ class User {
 		this.rdClassical = rdClassical;
 	}
 
-	static createTable() {
-		return db.none(sqlFile('user/create_users_table.sql'));
+	static createTable = async () => {
+		// return db.none(sqlFile('user/create_users_table.sql'));
+		const res = await client.query(`CREATE TABLE IF NOT EXISTS users (
+			id SERIAL PRIMARY KEY NOT NULL,
+			email TEXT NOT NULL UNIQUE,
+			username VARCHAR(15) NOT NULL UNIQUE,
+			password_hash CHAR(60) NOT NULL,
+			registration_timestamp TIMESTAMP,
+			reset_token CHAR(20),
+			title VARCHAR(2) NULL,
+			rd_bullet REAL NOT NULL DEFAULT 350,
+			rd_blitz REAL NOT NULL DEFAULT 350,
+			rd_classical REAL NOT NULL DEFAULT 350
+		);`);
+		return res;
 	}
 
 	static mapRow(row) {
@@ -30,9 +45,10 @@ class User {
 
 	static async getByID(id) {
 		try {
-			const row = await db.oneOrNone(sqlFile('user/get_user_by_id.sql'), { id: id });
-			if (row) {
-				return User.mapRow(row);
+			// const row = await db.oneOrNone(sqlFile('user/get_user_by_id.sql'), { id: id });
+			const {rows} = await client.query(`SELECT id, username, email, title, rating_bullet, rd_bullet, rating_blitz, rd_blitz, rating_classical, rd_classical FROM users_with_most_recent_ratings WHERE id = ${id};`);
+			if (rows.length !== 0) {
+				return User.mapRow(rows[0]);
 			}
 			const err = new Error();
 			err.status = 401;
@@ -47,9 +63,23 @@ class User {
 
 	static async getByUsername(username) {
 		try {
-			const row = await db.oneOrNone(sqlFile('user/get_user_by_username.sql'), { username: username });
-			if (row) {
-				return User.mapRow(row);
+			// const row = await db.oneOrNone(sqlFile('user/get_user_by_username.sql'), { username: username });
+			const {rows} = await client.query(`SELECT
+				id,
+				username,
+				email,
+				title,
+				rating_bullet,
+				rd_bullet,
+				rating_blitz,
+				rd_blitz,
+				rating_classical,
+				rd_classical
+			FROM users_with_most_recent_ratings
+			WHERE username = '${username}';
+			`);
+			if (rows.length !== 0 ) {
+				return User.mapRow(rows[0]);
 			}
 			const err = new Error();
 			err.status = 401;
@@ -130,9 +160,13 @@ class User {
 
 	static async validatePassword(username, password) {
 		try {
-			const row = await db.oneOrNone(sqlFile('user/get_password_by_username.sql'), { username });
-			if (row) {
-				const isValid = await bcrypt.compare(password, row.password_hash);
+			// const row = await db.oneOrNone(sqlFile('user/get_password_by_username.sql'), { username });
+			const { rows } = await client.query(`SELECT username, password_hash
+			FROM users
+			WHERE username = '${username}';
+			`);
+			if (rows.length !== 0) {
+				const isValid = await bcrypt.compare(password, rows[0].password_hash);
 				if (isValid) {
 					return await User.getByUsername(username);
 				}
@@ -192,13 +226,19 @@ class User {
 		if (user.id !== undefined) {
 			throw new Error('Attempted to insert a user that already has an ID');
 		}
-		const row = await db.one(sqlFile('user/create_new_user.sql'), user);
-		await db.tx(t => t.batch([
-			t.none(sqlFile('rating/insert_new_user_ratings.sql'), { id: row.id, ratingType: 'bullet' }),
-			t.none(sqlFile('rating/insert_new_user_ratings.sql'), { id: row.id, ratingType: 'blitz' }),
-			t.none(sqlFile('rating/insert_new_user_ratings.sql'), { id: row.id, ratingType: 'classical' })
-		]));
-		return row.id;
+		// const query = readSQLFile('user/create_new_user.sql');
+		// const row = await db.one(sqlFile('user/create_new_user.sql'), user);
+		const query = `INSERT INTO users (username, email, password_hash, registration_timestamp) VALUES ('${user.username}', '${user.email}', '${user.passwordHash}', now()) ON CONFLICT(username) DO NOTHING RETURNING id;`;
+		const {rows} = await client.query(query);
+		await client.query(`INSERT INTO ratings (user_id, rating_type, rating_timestamp, rating) VALUES (${rows[0].id}, 'bullet', now(), 1500);`);
+		await client.query(`INSERT INTO ratings (user_id, rating_type, rating_timestamp, rating) VALUES (${rows[0].id}, 'blitz', now(), 1500);`);
+		await client.query(`INSERT INTO ratings (user_id, rating_type, rating_timestamp, rating) VALUES (${rows[0].id}, 'classical', now(), 1500);`);
+		// await db.tx(t => t.batch([
+		// 	t.none(sqlFile('rating/insert_new_user_ratings.sql'), { id: rows[0].id, ratingType: 'bullet' }),
+		// 	t.none(sqlFile('rating/insert_new_user_ratings.sql'), { id: rows[0].id, ratingType: 'blitz' }),
+		// 	t.none(sqlFile('rating/insert_new_user_ratings.sql'), { id: rows[0].id, ratingType: 'classical' })
+		// ]));
+		return rows[0].id;
 	}
 }
 

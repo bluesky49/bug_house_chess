@@ -1,6 +1,14 @@
 const pgp = require('pg-promise')();
 const path = require('path');
 const config = require('../config');
+const { Client } = require('pg');
+const fs = require('fs');
+
+const connection = 'postgres://postgres:111@localhost:5432/bughouse';
+const client = new Client({
+	connectionString: connection
+});
+client.connect();
 
 const db = pgp(config.database);
 const sqlFilesDir = path.join(__dirname, '..', 'sql');
@@ -14,6 +22,11 @@ function sqlFile(filePath) {
 	return loadedSqlFiles[sqlFilePath];
 }
 
+function readSQLFile(filepath) {
+	const sqlFilePath = path.join(sqlFilesDir, filepath);
+	const query = fs.readFileSync(sqlFilePath).toString();
+	return query;
+}
 async function createSchema() {
 	/* eslint-disable global-require */
 	const User = require('./User');
@@ -32,7 +45,9 @@ function stopDB() {
 module.exports = {
 	db,
 	sqlFile,
+	readSQLFile,
 	createSchema,
 	pgp,
-	stopDB
+	stopDB,
+	client
 };

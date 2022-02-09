@@ -17,7 +17,8 @@ export default class RegisterComponent extends React.Component {
 			passwordHelpBlock: '',
 			email: '',
 			emailValid: null,
-			emailHelpBlock: ''
+			emailHelpBlock: '',
+			disabled: true,
 		};
 		this.handleSubmit = this.handleSubmit.bind(this);
 		this.handleChangeUsername = this.handleChangeUsername.bind(this);
@@ -28,15 +29,15 @@ export default class RegisterComponent extends React.Component {
 
 	handleChangeUsername(e) {
 		this.setState({ username: e.target.value });
-		if (e.target.value === '') {
-			this.setState({ usernameValid: null, usernameHelpBlock: '' });
-		} else if (e.target.value.length > 15) {
-			this.setState({ usernameValid: 'error', usernameHelpBlock: 'Username is too long' });
-		} else {
-			axios.get(`/api/users/username/${e.target.value}`)
-				.then(() => this.setState({ usernameValid: 'error', usernameHelpBlock: 'This username is not available' }))
-				.catch(() => this.setState({ usernameValid: 'success', usernameHelpBlock: '' }));
-		}
+		// if (e.target.value === '') {
+		// 	this.setState({ usernameValid: null, usernameHelpBlock: '' });
+		// } else if (e.target.value.length > 15) {
+		// 	this.setState({ usernameValid: 'error', usernameHelpBlock: 'Username is too long' });
+		// } else {
+		// 	axios.get(`/api/users/username/${e.target.value}`)
+		// 		.then(() => this.setState({ usernameValid: 'error', usernameHelpBlock: 'This username is not available' }))
+		// 		.catch(() => this.setState({ usernameValid: 'success', usernameHelpBlock: '' }));
+		// }
 	}
 
 	handleChangePassword(e) {
@@ -71,6 +72,8 @@ export default class RegisterComponent extends React.Component {
 
 	handleSubmit(e) {
 		e.preventDefault();
+		const disable = this.formValidityForSubmitButton();
+		this.setState({ ...this.state, disabled: disable });
 		const postData = {
 			username: this.state.username,
 			password: this.state.password,
@@ -137,7 +140,14 @@ export default class RegisterComponent extends React.Component {
 						</FormGroup>
 						<FormGroup>
 							<Col md={4}>
-								<Button bsStyle="primary" type="submit" disabled={this.formValidityForSubmitButton()}>Register</Button>
+								<Button
+									bsStyle="primary"
+									type="submit"
+									// disabled={this.formValidityForSubmitButton()}
+									// disabled={this.state.disabled}
+								>
+									Register
+								</Button>
 							</Col>
 						</FormGroup>
 					</Form>
